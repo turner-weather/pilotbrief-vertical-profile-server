@@ -78,7 +78,7 @@ public class SSDSVersionFetcher implements ServletContextListener {
 		}
 		
 	}
-
+	
 	public class RPMLayer {
 		String layerName;
 		String layerId;
@@ -94,6 +94,12 @@ public class SSDSVersionFetcher implements ServletContextListener {
 			this.floorFL = floorFL;
 			this.ceilingFL = ceilingFL;
 		}
+		
+		public String getMappingKey() {
+			return String.format("%s-%ld", this.layerId, this.timestamp);
+		}
+		
+		
 		
 	}
 

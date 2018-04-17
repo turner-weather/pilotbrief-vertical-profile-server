@@ -4,8 +4,11 @@ import java.awt.image.BufferedImage;
 import java.io.BufferedInputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import javax.imageio.ImageIO;
 import javax.servlet.ServletContextEvent;
@@ -18,7 +21,10 @@ import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.SSDSUpdateSubscribe
 @WebListener
 public class TurbulenceTileFetcher implements ServletContextListener {
 
-
+	final static int NTHREADS = 10;
+	
+	public boolean isReady = false;
+	
 	public void startUp() {
 		final TurbulenceTileFetcher me = this;
 		SSDSVersionFetcher.shared().subscribeToUpdates(new SSDSUpdateSubscriber() {
@@ -53,19 +59,24 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 	public static TurbulenceTileFetcher shared() {
 		return sharedInstance;
 	}
-
+	
+	public Map<String, UnpackedRPMLayer> unpackedLayers = null;
+	
 	public void fetchTiles(Map<String, RPMLayer> layers) {
 		try {
+			ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(NTHREADS);
+			Map<String, UnpackedRPMLayer> newMap = new HashMap<String, UnpackedRPMLayer>();
 			for (RPMLayer layer : layers.values()) {
 				for (Long fts : layer.forecastTimestamp) {
 					System.out.format("Fetching layer: %s, FTS = %d\n", layer.layerName, fts);
 					UnpackedRPMLayer rpmLayer = new UnpackedRPMLayer();
+					newMap.put(layer.getMappingKey(), rpmLayer);
+//					System.out.println("KB: " + (double) (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1024);
 					for (int x = 0; x < UnpackedRPMLayer.maxTileNumber; x++) {
-						CountDownLatch l = new CountDownLatch(UnpackedRPMLayer.maxTileNumber);
 						for (int y = 0; y < UnpackedRPMLayer.maxTileNumber; y++) {
 							final int myX = x;
 							final int myY = y;
-							Thread t = new Thread(new Runnable() {
+							pool.execute(new Runnable() {
 								
 								@Override
 								public void run() {
@@ -85,23 +96,32 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 										conn.connect();
 										BufferedInputStream in = new BufferedInputStream(conn.getInputStream()); 
 										BufferedImage image = ImageIO.read(in);
+//										System.out.format("Width = %d, height = %d\n", image.getWidth(), image.getHeight());
 										if ((image.getHeight() == 256) && (image.getWidth() == 256)) {
+//											images.add(image);
 											rpmLayer.addTile(image, myX, myY);
 										}
+										in.close();
+										conn.disconnect();
 									} catch (Exception ex) {
-											
-									} finally {
-										l.countDown();
+										ex.printStackTrace();
 									}
 									
 								}
 							});
-							t.start();
 						}
-						l.await();
 					}
 				}
 			}
+			
+			pool.shutdown();
+			while (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
+				System.out.format("Remaining = %d\n", pool.getQueue().size());
+			}
+			unpackedLayers = newMap;
+			this.isReady = true;
+			this.notifyAll();
+			System.out.println("DONE!");
 		}catch (Exception ex) {
 			ex.printStackTrace();
 		}
