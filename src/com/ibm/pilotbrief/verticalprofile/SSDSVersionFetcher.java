@@ -67,7 +67,13 @@ public class SSDSVersionFetcher implements ServletContextListener {
 					return t.timestamp != null;
 				}
 			})) {
-				subscriber.newVersionAvailable(rpmLayers);
+				new Thread(new Runnable() {
+					
+					@Override
+					public void run() {
+						subscriber.newVersionAvailable(rpmLayers);
+					}
+				}).start();;
 			}
 		}
 	}
@@ -96,9 +102,29 @@ public class SSDSVersionFetcher implements ServletContextListener {
 		}
 		
 		public String getMappingKey() {
-			return String.format("%s-%ld", this.layerId, this.timestamp);
+			return String.format("%s-%d", this.layerId, this.timestamp);
 		}
 		
+		@Override
+		public boolean equals(Object arg0) {
+			if (arg0.getClass() != RPMLayer.class) {
+				return false;
+			}
+			RPMLayer layer0 = (RPMLayer) arg0;
+			if (!layer0.layerName.equals(this.layerName)) {
+				return false;
+			}
+			if (!layer0.layerId.equals(this.layerId)) {
+				return false;
+			}
+			if (layer0.floorFL != this.floorFL || layer0.ceilingFL != this.ceilingFL || layer0.timestamp != this.timestamp) {
+				return false;
+			}
+			if (!layer0.forecastTimestamp.equals(this.forecastTimestamp)) {
+				return false;
+			}
+			return true;
+		}
 		
 		
 	}
@@ -149,7 +175,7 @@ public class SSDSVersionFetcher implements ServletContextListener {
 					if (layer == null) {
 						continue;
 					}
-					if (series.size() == 0) {
+					if ((series == null) || (series.size() == 0)) {
 						continue;
 					}
 					JSONObject mostCurrent = (JSONObject) series.get(0);

@@ -8,4 +8,15 @@ public class Segment {
 	GlobalCoordinates startPos;
 	GlobalCoordinates endPos;
 	
+	public Segment(double cumulativeDistanceNM, double segmentLengthNM, GlobalCoordinates startPos,
+			GlobalCoordinates endPos) {
+		super();
+		this.cumulativeDistanceNM = cumulativeDistanceNM;
+		this.segmentLengthNM = segmentLengthNM;
+		this.startPos = startPos;
+		this.endPos = endPos;
+	}
+	
+	
+	
 }

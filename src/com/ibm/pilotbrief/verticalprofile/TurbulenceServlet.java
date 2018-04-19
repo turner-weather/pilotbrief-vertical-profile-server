@@ -1,5 +1,6 @@
 package com.ibm.pilotbrief.verticalprofile;
 
+import java.awt.font.GlyphJustificationInfo;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -14,7 +15,14 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 
+import org.gavaghan.geodesy.Ellipsoid;
+import org.gavaghan.geodesy.GeodeticCalculator;
+import org.gavaghan.geodesy.GeodeticCurve;
 import org.gavaghan.geodesy.GlobalCoordinates;
+import org.json.simple.JSONObject;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 
 @Path("turbulence")
@@ -36,15 +44,40 @@ public class TurbulenceServlet {
 		// Still in startup
 		while (!TurbulenceTileFetcher.shared().isReady) {
 			try {
-				TurbulenceTileFetcher.shared().wait(1000);
+				synchronized(TurbulenceTileFetcher.shared()) {
+					TurbulenceTileFetcher.shared().wait(1000);
+				}
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 		}
 		
+		Ellipsoid e = Ellipsoid.WGS84;
+		GeodeticCalculator c = new GeodeticCalculator();
+		SegmentList<Segment> segList = new SegmentList<Segment>();
+		double cumulativeNM = 0;
+		GlobalCoordinates current = new GlobalCoordinates(flightplan.getWaypoints().get(0).getLatitude(), flightplan.getWaypoints().get(0).getLongitude());
+		for (int i = 1; i < flightplan.getWaypoints().size(); i++) {
+			GlobalCoordinates next = new GlobalCoordinates(flightplan.getWaypoints().get(i).getLatitude(), flightplan.getWaypoints().get(i).getLongitude());
+			GeodeticCurve curve = c.calculateGeodeticCurve(e, current, next);
+			double distNM = curve.getEllipsoidalDistance() * 5.39956804e-4;
+			segList.add(new Segment(cumulativeNM, distNM, current, next));
+			cumulativeNM += distNM;
+			current = next;
+		}
 		
-		return Response.ok().build();
+	
+		ObjectMapper m = new ObjectMapper();
+		List<IntermediatePosition> positions = this.getPositions(segList, flightplan.getDepartureTime(), flightplan.getArrivalTime());
+		try {
+			String json = m.writeValueAsString(positions);
+			return Response.ok(json).build();
+		} catch (JsonProcessingException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
+		}
+		return Response.serverError().build();
 		
 	}
 	
@@ -82,8 +115,10 @@ public class TurbulenceServlet {
 		return retval;
 	}
 	
-	public List<IntermediatePosition> getPositions(SegmentList<Segment> segments) {
+	public List<IntermediatePosition> getPositions(SegmentList<Segment> segments, Date departureTime, Date arrivalTime) {
 		List<IntermediatePosition> positions = new ArrayList<IntermediatePosition>();
+		
+		long milliDuration = arrivalTime.getTime() - departureTime.getTime();
 		
 		double distance = 0;
 		
@@ -93,7 +128,12 @@ public class TurbulenceServlet {
 		
 		Segment last = segments.get(segments.size() - 1);
 		
-		while (distance < last.cumulativeDistanceNM + last.segmentLengthNM) {
+		double totalDistance = last.cumulativeDistanceNM + last.segmentLengthNM;
+		
+		//millisecond per NM
+		double speed = (double) milliDuration / totalDistance;
+		
+		while (distance < totalDistance) {
 			GlobalCoordinates coord = segments.getCoordinatesForDistance(distance);
 			if (coord == null) {
 				return positions;
@@ -103,9 +143,9 @@ public class TurbulenceServlet {
 				double dist = distance - (POSITION_DELTA / 2.0);
 				GlobalCoordinates coord1 = segments.getCoordinatesForDistance(dist);
 				long[] xy1 = this.getXYForCoordinate(coord1);
-				positions.add(new IntermediatePosition(coord1.getLatitude(), coord1.getLongitude(), dist, null, (int) xy1[0], (int) xy1[1]));
+				positions.add(new IntermediatePosition(coord1.getLatitude(), coord1.getLongitude(), dist, new Date(departureTime.getTime() + Math.round(dist * speed)), (int) xy1[0], (int) xy1[1]));
 			}
-			positions.add(new IntermediatePosition(coord.getLatitude(), coord.getLongitude(), distance, null, (int) xy[0], (int) xy[1]));
+			positions.add(new IntermediatePosition(coord.getLatitude(), coord.getLongitude(), distance, new Date(departureTime.getTime() + Math.round(distance * speed)), (int) xy[0], (int) xy[1]));
 			distance += POSITION_DELTA;
 		}
 		

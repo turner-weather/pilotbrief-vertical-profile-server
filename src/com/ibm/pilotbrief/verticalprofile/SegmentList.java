@@ -1,14 +1,18 @@
 package com.ibm.pilotbrief.verticalprofile;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.xml.bind.annotation.XmlRootElement;
 
 import org.gavaghan.geodesy.Ellipsoid;
 import org.gavaghan.geodesy.GeodeticCalculator;
 import org.gavaghan.geodesy.GeodeticCurve;
 import org.gavaghan.geodesy.GlobalCoordinates;
 
-public class SegmentList<T> extends ArrayList<T> {
+@XmlRootElement
+public class SegmentList<T> extends ArrayList<T> implements Serializable {
 
 	/**
 	 * 
@@ -29,7 +33,8 @@ public class SegmentList<T> extends ArrayList<T> {
 			GeodeticCalculator c = new GeodeticCalculator();
 			GeodeticCurve curve = c.calculateGeodeticCurve(e, startPos, endPos);
 			double distAlong = distance - segment.cumulativeDistanceNM;
-			return c.calculateEndingGlobalCoordinates(e, startPos, curve.getAzimuth(), distAlong);
+			double distanceMeters = distAlong * 1852;
+			return c.calculateEndingGlobalCoordinates(e, startPos, curve.getAzimuth(), distanceMeters);
 		}
 		return null;
 	}

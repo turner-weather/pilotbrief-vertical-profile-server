@@ -24,12 +24,26 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 	final static int NTHREADS = 10;
 	
 	public boolean isReady = false;
+	public boolean isFetching = false;
+	public Map<String, RPMLayer> currentFetch;
 	
 	public void startUp() {
 		final TurbulenceTileFetcher me = this;
 		SSDSVersionFetcher.shared().subscribeToUpdates(new SSDSUpdateSubscriber() {
 			@Override
 			public void newVersionAvailable(Map<String, RPMLayer> layers) {
+				if (currentFetch == layers) {
+					return;
+				}
+				currentFetch = layers;
+				while(me.isFetching) {
+					try {
+						Thread.sleep(1000);
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				}
 				me.fetchTiles(layers);
 			}
 		});
@@ -50,7 +64,7 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 
 	@Override
 	public void contextInitialized(ServletContextEvent servletContextEvent) {
-		this.startUp();
+		TurbulenceTileFetcher.sharedInstance.startUp();
 	}
 
 
@@ -63,6 +77,7 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 	public Map<String, UnpackedRPMLayer> unpackedLayers = null;
 	
 	public void fetchTiles(Map<String, RPMLayer> layers) {
+		this.isFetching = true;
 		try {
 			ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(NTHREADS);
 			Map<String, UnpackedRPMLayer> newMap = new HashMap<String, UnpackedRPMLayer>();
@@ -120,7 +135,10 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 			}
 			unpackedLayers = newMap;
 			this.isReady = true;
-			this.notifyAll();
+			this.isFetching = false;
+			synchronized(this) {
+				this.notifyAll();
+			}
 			System.out.println("DONE!");
 		}catch (Exception ex) {
 			ex.printStackTrace();
