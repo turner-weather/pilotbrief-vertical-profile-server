@@ -7,15 +7,13 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
-import java.util.function.BinaryOperator;
 import java.util.function.Predicate;
 
-import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
 import javax.servlet.annotation.WebListener;
 
@@ -23,8 +21,6 @@ import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
-
-import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.RPMLayer;
 
 @WebListener
 public class SSDSVersionFetcher implements ServletContextListener {
@@ -89,11 +85,12 @@ public class SSDSVersionFetcher implements ServletContextListener {
 		String layerName;
 		String layerId;
 		int floorFL;
+		int flightLevel;
 		int ceilingFL;
 		List<Long> forecastTimestamp;
 		Long timestamp;
 
-		public RPMLayer(String layerName, String layerId, int floorFL, int ceilingFL) {
+		public RPMLayer(String layerName, String layerId, int floorFL, int ceilingFL, int flightLevel) {
 			super();
 			this.layerId = layerId;
 			this.layerName = layerName;
@@ -132,18 +129,18 @@ public class SSDSVersionFetcher implements ServletContextListener {
 	private Map<String, RPMLayer> rpmLayers = generateRPMLayers();
 	
 	private Map<String, RPMLayer> generateRPMLayers() {
-		Map<String, RPMLayer> map = new HashMap<String, RPMLayer>();
-		map.put("globalGTG110", new RPMLayer("RPM Turbulence FL110", "globalGTG110", 100, 120));
-		map.put("globalGTG130", new RPMLayer("RPM Turbulence FL130", "globalGTG130", 120, 140));
-		map.put("globalGTG150", new RPMLayer("RPM Turbulence FL150", "globalGTG150", 140, 165));
-		map.put("globalGTG180", new RPMLayer("RPM Turbulence FL180", "globalGTG180", 165, 195));
-		map.put("globalGTG210", new RPMLayer("RPM Turbulence FL210", "globalGTG210", 195, 225));
-		map.put("globalGTG240", new RPMLayer("RPM Turbulence FL240", "globalGTG240", 225, 255));
-		map.put("globalGTG270", new RPMLayer("RPM Turbulence FL270", "globalGTG270", 255, 285));
-		map.put("globalGTG300", new RPMLayer("RPM Turbulence FL300", "globalGTG300", 285, 320));
-		map.put("globalGTG340", new RPMLayer("RPM Turbulence FL340", "globalGTG340", 320, 365));
-		map.put("globalGTG390", new RPMLayer("RPM Turbulence FL390", "globalGTG390", 365, 410));
-		map.put("globalGTG430", new RPMLayer("RPM Turbulence FL430", "globalGTG430", 410, 450));
+		Map<String, RPMLayer> map = new LinkedHashMap<String, RPMLayer>();
+		map.put("globalGTG110", new RPMLayer("RPM Turbulence FL110", "globalGTG110", 100, 120, 110));
+		map.put("globalGTG130", new RPMLayer("RPM Turbulence FL130", "globalGTG130", 120, 140, 130));
+		map.put("globalGTG150", new RPMLayer("RPM Turbulence FL150", "globalGTG150", 140, 165, 150));
+		map.put("globalGTG180", new RPMLayer("RPM Turbulence FL180", "globalGTG180", 165, 195, 180));
+		map.put("globalGTG210", new RPMLayer("RPM Turbulence FL210", "globalGTG210", 195, 225, 210));
+		map.put("globalGTG240", new RPMLayer("RPM Turbulence FL240", "globalGTG240", 225, 255, 240));
+		map.put("globalGTG270", new RPMLayer("RPM Turbulence FL270", "globalGTG270", 255, 285, 270));
+		map.put("globalGTG300", new RPMLayer("RPM Turbulence FL300", "globalGTG300", 285, 320, 300));
+		map.put("globalGTG340", new RPMLayer("RPM Turbulence FL340", "globalGTG340", 320, 365, 340));
+		map.put("globalGTG390", new RPMLayer("RPM Turbulence FL390", "globalGTG390", 365, 410, 390));
+		map.put("globalGTG430", new RPMLayer("RPM Turbulence FL430", "globalGTG430", 410, 450, 430));
 	
 		return map;
 	}

@@ -3,11 +3,9 @@ package com.ibm.pilotbrief.verticalprofile;
 import java.util.Date;
 import java.util.List;
 
-import javax.xml.bind.annotation.*;
+import com.fasterxml.jackson.annotation.JsonRootName;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
-
-@XmlRootElement
+@JsonRootName(value = "FlightPlan")
 public class FlightPlan {
 	private List<Waypoint> waypoints;
 	private Date departureTime;

@@ -4,8 +4,11 @@ import java.awt.image.BufferedImage;
 import java.io.BufferedInputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -17,6 +20,7 @@ import javax.servlet.annotation.WebListener;
 
 import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.RPMLayer;
 import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.SSDSUpdateSubscriber;
+import com.ibm.pilotbrief.verticalprofile.UnpackedRPMLayer.TurbulenceSeverity;
 
 @WebListener
 public class TurbulenceTileFetcher implements ServletContextListener {
@@ -76,16 +80,22 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 	
 	public Map<String, UnpackedRPMLayer> unpackedLayers = null;
 	
+	public Map<RPMLayer, SortedMap<Date, UnpackedRPMLayer>> layerMap = new HashMap<RPMLayer, SortedMap<Date, UnpackedRPMLayer>>();
+	
 	public void fetchTiles(Map<String, RPMLayer> layers) {
 		this.isFetching = true;
 		try {
 			ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(NTHREADS);
 			Map<String, UnpackedRPMLayer> newMap = new HashMap<String, UnpackedRPMLayer>();
+			Map<RPMLayer, SortedMap<Date, UnpackedRPMLayer>> newLayerMap = new HashMap<RPMLayer, SortedMap<Date, UnpackedRPMLayer>>();
 			for (RPMLayer layer : layers.values()) {
+				newLayerMap.put(layer, new TreeMap<Date, UnpackedRPMLayer>());
 				for (Long fts : layer.forecastTimestamp) {
-					System.out.format("Fetching layer: %s, FTS = %d\n", layer.layerName, fts);
+					System.out.format("Fetching layer: %s, FTS = %s\n", layer.layerName, new Date(fts * 1000).toGMTString());
 					UnpackedRPMLayer rpmLayer = new UnpackedRPMLayer();
+					rpmLayer.forecastTimestamp = fts * 1000;
 					newMap.put(layer.getMappingKey(), rpmLayer);
+					newLayerMap.get(layer).put(new Date(fts * 1000), rpmLayer);
 //					System.out.println("KB: " + (double) (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1024);
 					for (int x = 0; x < UnpackedRPMLayer.maxTileNumber; x++) {
 						for (int y = 0; y < UnpackedRPMLayer.maxTileNumber; y++) {
@@ -134,6 +144,7 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 				System.out.format("Remaining = %d\n", pool.getQueue().size());
 			}
 			unpackedLayers = newMap;
+			layerMap = newLayerMap;
 			this.isReady = true;
 			this.isFetching = false;
 			synchronized(this) {
@@ -143,6 +154,24 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 		}catch (Exception ex) {
 			ex.printStackTrace();
 		}
+	}
+	
+	public TurbulenceSeverity getLayerValueForAltitudeAndTime(RPMLayer layer, Date time, int x, int y) {
+		long timestamp = time.getTime();
+		for (UnpackedRPMLayer rpmLayer : this.layerMap.get(layer).values()) {
+			long fts = rpmLayer.forecastTimestamp;
+			System.out.format("Comparing %s to %s\n", new Date(fts).toGMTString(), new Date(timestamp).toGMTString());
+			if (rpmLayer.forecastTimestamp > timestamp) {
+				break;
+			}
+			if ((fts <= timestamp) &&
+					(fts + 3600 >= timestamp)) {
+				return rpmLayer.severityMap[x][y];
+			}
+			
+		}
+		
+		return null;
 	}
 
 

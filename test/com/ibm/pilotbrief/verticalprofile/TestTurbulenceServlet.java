@@ -5,6 +5,7 @@ package com.ibm.pilotbrief.verticalprofile;
 
 import static org.junit.Assert.assertEquals;
 
+import java.util.Date;
 import java.util.List;
 
 import org.gavaghan.geodesy.Ellipsoid;
@@ -53,8 +54,14 @@ public class TestTurbulenceServlet {
 		SegmentList<Segment> seglist = new SegmentList<Segment>();
 		seglist.add(kseaKBOS);
 		TurbulenceServlet s = new TurbulenceServlet();
-		List<IntermediatePosition> positions = s.getPositions(seglist);
+		long start = System.currentTimeMillis();
+		List<IntermediatePosition> positions = s.getPositions(seglist, new Date(start), new Date(start + 1000 * 3600 * 3));
 		assertEquals(1085, positions.size());
+		assertEquals(start, positions.get(0).eta.getTime());
+		assertEquals(47.4502, positions.get(0).lat,0.01);
+		assertEquals(-122.3088, positions.get(0).longitude,0.01);		
+		assertEquals(42.3656, positions.get(positions.size() - 1).lat,0.01);
+		assertEquals(-71.0096, positions.get(positions.size() - 1).longitude,0.01);		
 		
 	}
 

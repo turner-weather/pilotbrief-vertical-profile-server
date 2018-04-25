@@ -1,9 +1,10 @@
 package com.ibm.pilotbrief.verticalprofile;
 
-import java.awt.font.GlyphJustificationInfo;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
@@ -19,10 +20,11 @@ import org.gavaghan.geodesy.Ellipsoid;
 import org.gavaghan.geodesy.GeodeticCalculator;
 import org.gavaghan.geodesy.GeodeticCurve;
 import org.gavaghan.geodesy.GlobalCoordinates;
-import org.json.simple.JSONObject;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.RPMLayer;
+import com.ibm.pilotbrief.verticalprofile.UnpackedRPMLayer.TurbulenceSeverity;
 
 
 @Path("turbulence")
@@ -70,8 +72,52 @@ public class TurbulenceServlet {
 	
 		ObjectMapper m = new ObjectMapper();
 		List<IntermediatePosition> positions = this.getPositions(segList, flightplan.getDepartureTime(), flightplan.getArrivalTime());
+		
+		/**
+		 * Iterate over flight levels, and then X/Y positions inside of each level, to find congruent features
+		 */
+		Map<String, Object> responseJSON = new HashMap<String, Object>();
+		responseJSON.put("type", "FeatureCollection");
+		List<Map<String, Object>> featureJSON = new ArrayList<Map<String, Object>>();
+		responseJSON.put("features"	, featureJSON);
+		for (RPMLayer rpmLayer : SSDSVersionFetcher.shared().getRPMLayers().values()) {
+			TurbulenceSeverity lastTurb = null;
+			Double lastTurbLat = null;
+			Double lastTurbLong = null; 
+			for (IntermediatePosition pos : positions) {
+				TurbulenceSeverity severity = TurbulenceTileFetcher.shared().getLayerValueForAltitudeAndTime(rpmLayer, pos.eta, pos.x,pos.y);
+				if (severity == lastTurb) {
+					continue;
+				}
+				if (severity == null) {
+					Map<String, Object> newFeature = new HashMap<String, Object>();
+					newFeature.put("type", "Feature");
+					Map<String, Object> geometry = new HashMap<String, Object>();
+					newFeature.put("geometry", geometry);
+					geometry.put("type", "Polygon");
+					List<Double[]> coordinates = new ArrayList<Double[]>();
+					Double[] leftBottom = {lastTurbLat, lastTurbLong, rpmLayer.floorFL * 1000.0};
+					Double[] leftTop = {lastTurbLat, lastTurbLong, rpmLayer.ceilingFL * 1000.0};
+					Double[] rightTop = {pos.lat, pos.longitude, rpmLayer.ceilingFL * 1000.0};
+					Double[] rightBottom = {pos.lat, pos.longitude, rpmLayer.floorFL * 1000.0};
+					coordinates.add(leftBottom);
+					coordinates.add(leftTop);
+					coordinates.add(rightTop);
+					coordinates.add(rightBottom);
+					geometry.put("coordinates", coordinates);
+					Map<String, Object> props = new HashMap<String, Object>();
+					newFeature.put("properties", props);
+					props.put("severity", lastTurb);
+					lastTurb = null;
+					continue;
+				}
+				lastTurb = severity;
+				lastTurbLat = pos.lat;
+				lastTurbLong = pos.longitude;
+			}
+		}
 		try {
-			String json = m.writeValueAsString(positions);
+			String json = m.writeValueAsString(responseJSON);
 			return Response.ok(json).build();
 		} catch (JsonProcessingException e1) {
 			// TODO Auto-generated catch block
