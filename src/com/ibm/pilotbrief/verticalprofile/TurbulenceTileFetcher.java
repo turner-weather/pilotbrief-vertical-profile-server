@@ -51,6 +51,7 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 				me.fetchTiles(layers);
 			}
 		});
+		SSDSVersionFetcher.shared().startFetching();
 	}
 
 	public static void main(String[] args) {
@@ -91,11 +92,12 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 			for (RPMLayer layer : layers.values()) {
 				newLayerMap.put(layer, new TreeMap<Date, UnpackedRPMLayer>());
 				for (Long fts : layer.forecastTimestamp) {
-					System.out.format("Fetching layer: %s, FTS = %s\n", layer.layerName, new Date(fts * 1000).toGMTString());
+					Date ftsDate = new Date(fts * 1000);
+//					System.out.format("Fetching layer: %s, FTS = %s\n", layer.layerName, ftsDate.toGMTString());
 					UnpackedRPMLayer rpmLayer = new UnpackedRPMLayer();
-					rpmLayer.forecastTimestamp = fts * 1000;
+					rpmLayer.forecastTimestamp = ftsDate.getTime();
 					newMap.put(layer.getMappingKey(), rpmLayer);
-					newLayerMap.get(layer).put(new Date(fts * 1000), rpmLayer);
+					newLayerMap.get(layer).put(new Date(fts), rpmLayer);
 //					System.out.println("KB: " + (double) (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1024);
 					for (int x = 0; x < UnpackedRPMLayer.maxTileNumber; x++) {
 						for (int y = 0; y < UnpackedRPMLayer.maxTileNumber; y++) {
@@ -157,16 +159,19 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 	}
 	
 	public TurbulenceSeverity getLayerValueForAltitudeAndTime(RPMLayer layer, Date time, int x, int y) {
-		long timestamp = time.getTime();
+		long timestamp = time.getTime() ;
 		for (UnpackedRPMLayer rpmLayer : this.layerMap.get(layer).values()) {
 			long fts = rpmLayer.forecastTimestamp;
-			System.out.format("Comparing %s to %s\n", new Date(fts).toGMTString(), new Date(timestamp).toGMTString());
 			if (rpmLayer.forecastTimestamp > timestamp) {
 				break;
 			}
 			if ((fts <= timestamp) &&
-					(fts + 3600 >= timestamp)) {
-				return rpmLayer.severityMap[x][y];
+					(fts + 3600000 >= timestamp)) {
+				TurbulenceSeverity s = rpmLayer.severityMap[x][y];
+				if (s != null) {
+					System.out.format("Got %s for %d, %d\n", s.toString(), x, y);
+				}
+				return s;
 			}
 			
 		}

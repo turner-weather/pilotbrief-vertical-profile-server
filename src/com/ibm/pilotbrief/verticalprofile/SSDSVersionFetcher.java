@@ -14,6 +14,7 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.function.Predicate;
 
+import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
 import javax.servlet.annotation.WebListener;
 
@@ -29,12 +30,7 @@ public class SSDSVersionFetcher implements ServletContextListener {
 		public void newVersionAvailable(Map<String, RPMLayer> layers);
 	}
 
-	public static void main(String[] args) {
-		SSDSVersionFetcher f = new SSDSVersionFetcher();
-	}
-	
-	public SSDSVersionFetcher() {
-		super();
+	public void startFetching() {
 		final SSDSVersionFetcher me = this;
 		Thread t = new Thread(new Runnable() {
 			
@@ -43,7 +39,28 @@ public class SSDSVersionFetcher implements ServletContextListener {
 				me.fetchCurrentVersions();
 			}
 		});
-		t.run();
+		t.start();
+
+	}
+	
+	Timer t;
+	
+	@Override
+	public void contextDestroyed(ServletContextEvent sce) {
+		ServletContextListener.super.contextDestroyed(sce);
+		if (t != null) {
+			t.cancel();
+		}
+		t = null;
+		
+	}
+	public static void main(String[] args) {
+		final SSDSVersionFetcher me = new SSDSVersionFetcher();
+		me.startFetching();
+	}
+	
+	public SSDSVersionFetcher() {
+		super();
 	}
 
 	private final static SSDSVersionFetcher  sharedInstance = new SSDSVersionFetcher();
@@ -162,43 +179,43 @@ public class SSDSVersionFetcher implements ServletContextListener {
 			Object obj = new JSONParser().parse(new InputStreamReader(conn.getInputStream()));
 			boolean somethingChanged = false;
 			Map<String, RPMLayer> newLayers = generateRPMLayers();
-				JSONObject jo = (JSONObject) obj;
-				JSONObject seriesInfo = (JSONObject) jo.get("seriesInfo");
-				for (Object key : seriesInfo.keySet()) {
-					String keyString = (String) key;
-					JSONObject info = (JSONObject) seriesInfo.get(keyString);
-					JSONArray series = (JSONArray) info.get("series");
-					RPMLayer layer = newLayers.get(keyString);
-					if (layer == null) {
-						continue;
-					}
-					if ((series == null) || (series.size() == 0)) {
-						continue;
-					}
-					JSONObject mostCurrent = (JSONObject) series.get(0);
-					RPMLayer oldLayer = rpmLayers.get(keyString);
-					Long newTimestamp = (Long) mostCurrent.get("ts");
-					if (!newTimestamp.equals(oldLayer.timestamp)) {
-						somethingChanged = true;
-					}
-					layer.timestamp = newTimestamp;
-					JSONArray fts = (JSONArray) mostCurrent.get("fts");
-					layer.forecastTimestamp = new ArrayList<Long>();
-					for (Object ft : fts) {
-						Long ftLong = (Long) ft;
-						layer.forecastTimestamp.add(ftLong);
-					}
+			JSONObject jo = (JSONObject) obj;
+			JSONObject seriesInfo = (JSONObject) jo.get("seriesInfo");
+			for (Object key : seriesInfo.keySet()) {
+				String keyString = (String) key;
+				JSONObject info = (JSONObject) seriesInfo.get(keyString);
+				JSONArray series = (JSONArray) info.get("series");
+				RPMLayer layer = newLayers.get(keyString);
+				if (layer == null) {
+					continue;
+				}
+				if ((series == null) || (series.size() == 0)) {
+					continue;
+				}
+				JSONObject mostCurrent = (JSONObject) series.get(0);
+				RPMLayer oldLayer = rpmLayers.get(keyString);
+				Long newTimestamp = (Long) mostCurrent.get("ts");
+				if (!newTimestamp.equals(oldLayer.timestamp)) {
+					somethingChanged = true;
+				}
+				layer.timestamp = newTimestamp;
+				JSONArray fts = (JSONArray) mostCurrent.get("fts");
+				layer.forecastTimestamp = new ArrayList<Long>();
+				for (Object ft : fts) {
+					Long ftLong = (Long) ft;
+					layer.forecastTimestamp.add(ftLong);
+				}
 			}
-				if (somethingChanged) {
-					synchronized(this) {
-						this.rpmLayers = newLayers;
+			if (somethingChanged) {
+				synchronized(this) {
+					this.rpmLayers = newLayers;
+				}
+				synchronized (subscribers) {
+					for (SSDSUpdateSubscriber subscriber : subscribers) {
+						subscriber.newVersionAvailable(rpmLayers);
 					}
-					synchronized (subscribers) {
-						for (SSDSUpdateSubscriber subscriber : subscribers) {
-							subscriber.newVersionAvailable(rpmLayers);
-						}
-						
-					}
+
+				}
 			} 
 		} catch (MalformedURLException e) {
 			// TODO Auto-generated catch block
@@ -213,7 +230,10 @@ public class SSDSVersionFetcher implements ServletContextListener {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		} finally {
-			Timer t = new Timer();
+			if (t != null) {
+				t.cancel();
+			}
+			t = new Timer();
 			final SSDSVersionFetcher me = this;
 			t.schedule(new TimerTask() {
 

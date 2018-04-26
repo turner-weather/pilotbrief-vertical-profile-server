@@ -81,34 +81,41 @@ public class TurbulenceServlet {
 		List<Map<String, Object>> featureJSON = new ArrayList<Map<String, Object>>();
 		responseJSON.put("features"	, featureJSON);
 		for (RPMLayer rpmLayer : SSDSVersionFetcher.shared().getRPMLayers().values()) {
-			TurbulenceSeverity lastTurb = null;
+			TurbulenceSeverity lastTurb = TurbulenceSeverity.NONE;
 			Double lastTurbLat = null;
 			Double lastTurbLong = null; 
 			for (IntermediatePosition pos : positions) {
 				TurbulenceSeverity severity = TurbulenceTileFetcher.shared().getLayerValueForAltitudeAndTime(rpmLayer, pos.eta, pos.x,pos.y);
+				if (severity == null) {
+					severity = TurbulenceSeverity.NONE;
+				}
 				if (severity == lastTurb) {
 					continue;
 				}
-				if (severity == null) {
+				if ((severity == TurbulenceSeverity.NONE) || (pos == positions.get(positions.size() - 1))) {
 					Map<String, Object> newFeature = new HashMap<String, Object>();
 					newFeature.put("type", "Feature");
 					Map<String, Object> geometry = new HashMap<String, Object>();
 					newFeature.put("geometry", geometry);
 					geometry.put("type", "Polygon");
 					List<Double[]> coordinates = new ArrayList<Double[]>();
-					Double[] leftBottom = {lastTurbLat, lastTurbLong, rpmLayer.floorFL * 1000.0};
-					Double[] leftTop = {lastTurbLat, lastTurbLong, rpmLayer.ceilingFL * 1000.0};
-					Double[] rightTop = {pos.lat, pos.longitude, rpmLayer.ceilingFL * 1000.0};
-					Double[] rightBottom = {pos.lat, pos.longitude, rpmLayer.floorFL * 1000.0};
+					Double[] leftBottom = {lastTurbLong, lastTurbLat, rpmLayer.floorFL * 100.0};
+					Double[] leftTop = {lastTurbLong, lastTurbLat, rpmLayer.ceilingFL * 100.0};
+					Double[] rightTop = {pos.longitude, pos.lat,  rpmLayer.ceilingFL * 100.0};
+					Double[] rightBottom = {pos.longitude, pos.lat, rpmLayer.floorFL * 100.0};
 					coordinates.add(leftBottom);
 					coordinates.add(leftTop);
 					coordinates.add(rightTop);
 					coordinates.add(rightBottom);
-					geometry.put("coordinates", coordinates);
+					coordinates.add(leftBottom);
+					List<List<Double[]>> wrapper = new ArrayList<List<Double[]>>();
+					wrapper.add(coordinates);
+					geometry.put("coordinates", wrapper);
 					Map<String, Object> props = new HashMap<String, Object>();
 					newFeature.put("properties", props);
 					props.put("severity", lastTurb);
-					lastTurb = null;
+					featureJSON.add(newFeature);
+					lastTurb = TurbulenceSeverity.NONE;
 					continue;
 				}
 				lastTurb = severity;
@@ -179,12 +186,17 @@ public class TurbulenceServlet {
 		//millisecond per NM
 		double speed = (double) milliDuration / totalDistance;
 		
+		long[] lastXY = {-1000, -1000};
 		while (distance < totalDistance) {
 			GlobalCoordinates coord = segments.getCoordinatesForDistance(distance);
 			if (coord == null) {
 				return positions;
 			}
 			long[] xy = this.getXYForCoordinate(coord);
+			if (xy[0] == lastXY[0] && xy[1] == lastXY[1]) {
+				distance += POSITION_DELTA;
+				continue;
+			}
 			if (distance > 0) {
 				double dist = distance - (POSITION_DELTA / 2.0);
 				GlobalCoordinates coord1 = segments.getCoordinatesForDistance(dist);
@@ -193,6 +205,7 @@ public class TurbulenceServlet {
 			}
 			positions.add(new IntermediatePosition(coord.getLatitude(), coord.getLongitude(), distance, new Date(departureTime.getTime() + Math.round(distance * speed)), (int) xy[0], (int) xy[1]));
 			distance += POSITION_DELTA;
+			lastXY = xy;
 		}
 		
 		return positions;

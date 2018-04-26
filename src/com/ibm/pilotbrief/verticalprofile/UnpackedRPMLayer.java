@@ -25,9 +25,6 @@ public class UnpackedRPMLayer {
 	public TurbulenceSeverity[][] severityMap = new TurbulenceSeverity[256 * maxTileNumber][256 * maxTileNumber];
 	
 	public void addTile(Image image, int tileX, int tileY) {
-		if (1 == 1) {
-			return;
-		}
 		int[] pixels = new int[256 * 256];
 		PixelGrabber pg = new PixelGrabber(image, 0, 0, 256, 256, pixels, 0, 256);
 		try {
