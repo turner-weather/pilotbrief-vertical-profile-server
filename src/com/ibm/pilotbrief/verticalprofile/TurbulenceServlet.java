@@ -1,13 +1,17 @@
 package com.ibm.pilotbrief.verticalprofile;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
+import javax.ws.rs.GET;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
@@ -30,6 +34,39 @@ import com.ibm.pilotbrief.verticalprofile.UnpackedRPMLayer.TurbulenceSeverity;
 @Path("turbulence")
 public class TurbulenceServlet {
 	static double POSITION_DELTA = 4.0;
+	
+	@Path("isReady")
+	@GET
+	@Produces(MediaType.TEXT_PLAIN)
+	public Response isReady() {
+		return Response.ok(TurbulenceTileFetcher.shared().isReady).build();
+	}
+	
+	private Map<String, Object> addFeature(Double lastLat, Double lastLong, Double currentLat, Double currentLong, RPMLayer layer, TurbulenceSeverity severity) {
+		Map<String, Object> newFeature = new HashMap<String, Object>();
+		newFeature.put("type", "Feature");
+		Map<String, Object> geometry = new HashMap<String, Object>();
+		newFeature.put("geometry", geometry);
+		geometry.put("type", "Polygon");
+		List<Double[]> coordinates = new ArrayList<Double[]>();
+		Double[] leftBottom = {lastLong, lastLat, layer.floorFL * 100.0};
+		Double[] leftTop = {lastLong, lastLat, layer.ceilingFL * 100.0};
+		Double[] rightTop = {currentLong, currentLat,  layer.ceilingFL * 100.0};
+		Double[] rightBottom = {currentLong, currentLat, layer.floorFL * 100.0};
+		coordinates.add(leftBottom);
+		coordinates.add(leftTop);
+		coordinates.add(rightTop);
+		coordinates.add(rightBottom);
+		coordinates.add(leftBottom);
+		List<List<Double[]>> wrapper = new ArrayList<List<Double[]>>();
+		wrapper.add(coordinates);
+		geometry.put("coordinates", wrapper);
+		Map<String, Object> props = new HashMap<String, Object>();
+		newFeature.put("properties", props);
+		props.put("severity", severity);
+		return newFeature;
+		
+	}
 	
 	@POST
 	@Consumes(MediaType.APPLICATION_JSON)
@@ -73,6 +110,7 @@ public class TurbulenceServlet {
 		ObjectMapper m = new ObjectMapper();
 		List<IntermediatePosition> positions = this.getPositions(segList, flightplan.getDepartureTime(), flightplan.getArrivalTime());
 		
+
 		/**
 		 * Iterate over flight levels, and then X/Y positions inside of each level, to find congruent features
 		 */
@@ -93,28 +131,7 @@ public class TurbulenceServlet {
 					continue;
 				}
 				if ((severity == TurbulenceSeverity.NONE) || (pos == positions.get(positions.size() - 1))) {
-					Map<String, Object> newFeature = new HashMap<String, Object>();
-					newFeature.put("type", "Feature");
-					Map<String, Object> geometry = new HashMap<String, Object>();
-					newFeature.put("geometry", geometry);
-					geometry.put("type", "Polygon");
-					List<Double[]> coordinates = new ArrayList<Double[]>();
-					Double[] leftBottom = {lastTurbLong, lastTurbLat, rpmLayer.floorFL * 100.0};
-					Double[] leftTop = {lastTurbLong, lastTurbLat, rpmLayer.ceilingFL * 100.0};
-					Double[] rightTop = {pos.longitude, pos.lat,  rpmLayer.ceilingFL * 100.0};
-					Double[] rightBottom = {pos.longitude, pos.lat, rpmLayer.floorFL * 100.0};
-					coordinates.add(leftBottom);
-					coordinates.add(leftTop);
-					coordinates.add(rightTop);
-					coordinates.add(rightBottom);
-					coordinates.add(leftBottom);
-					List<List<Double[]>> wrapper = new ArrayList<List<Double[]>>();
-					wrapper.add(coordinates);
-					geometry.put("coordinates", wrapper);
-					Map<String, Object> props = new HashMap<String, Object>();
-					newFeature.put("properties", props);
-					props.put("severity", lastTurb);
-					featureJSON.add(newFeature);
+					featureJSON.add(this.addFeature(lastTurbLat, lastTurbLong,  pos.lat, pos.longitude, rpmLayer, lastTurb));
 					lastTurb = TurbulenceSeverity.NONE;
 					continue;
 				}
@@ -122,6 +139,33 @@ public class TurbulenceServlet {
 				lastTurbLat = pos.lat;
 				lastTurbLong = pos.longitude;
 			}
+			if (lastTurb != TurbulenceSeverity.NONE) {
+				IntermediatePosition lastPos = positions.get(positions.size() - 1);
+				featureJSON.add(this.addFeature(lastTurbLat, lastTurbLong,  lastPos.lat, lastPos.longitude, rpmLayer, lastTurb));
+
+			}
+		}
+		String layerKey = TurbulenceTileFetcher.shared().unpackedLayers.keySet().iterator().next();
+		UnpackedRPMLayer layer = TurbulenceTileFetcher.shared().unpackedLayers.get(layerKey);
+		File debugFile = new File("/tmp/debug.png");
+		for (int x = 0; x < UnpackedRPMLayer.totalTileSize - 1; x += 256) {
+			for (int y = 0; y < UnpackedRPMLayer.totalTileSize - 1; y += 1) {
+				layer.bitmap.setRGB(x, y, 0xFFFFCD2E);
+			}
+		}
+		for (int y = 0; y < UnpackedRPMLayer.totalTileSize - 1; y += 256) {
+			for (int x = 0; x < UnpackedRPMLayer.totalTileSize - 1; x += 1) {
+			layer.bitmap.setRGB(x, y, 0xFFFFCD2E);
+			}
+		}
+		for (IntermediatePosition pos : positions) {
+			layer.bitmap.setRGB(pos.x, (UnpackedRPMLayer.totalTileSize - 1) - pos.y, 0xFFFFCD2E);
+		}
+		try {
+			ImageIO.write(layer.bitmap, "png", debugFile);
+		} catch (IOException e2) {
+			// TODO Auto-generated catch block
+			e2.printStackTrace();
 		}
 		try {
 			String json = m.writeValueAsString(responseJSON);

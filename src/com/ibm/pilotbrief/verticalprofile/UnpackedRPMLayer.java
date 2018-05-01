@@ -1,6 +1,7 @@
 package com.ibm.pilotbrief.verticalprofile;
 
 import java.awt.Image;
+import java.awt.image.BufferedImage;
 import java.awt.image.PixelGrabber;
 
 public class UnpackedRPMLayer {
@@ -22,35 +23,21 @@ public class UnpackedRPMLayer {
 	
 	public Long forecastTimestamp;
 	
-	public TurbulenceSeverity[][] severityMap = new TurbulenceSeverity[256 * maxTileNumber][256 * maxTileNumber];
+	public BufferedImage bitmap = new BufferedImage(256 * maxTileNumber, 256 * maxTileNumber, BufferedImage.TYPE_4BYTE_ABGR);
 	
 	public void addTile(Image image, int tileX, int tileY) {
+		/**
+		Graphics g2 = bitmap.getGraphics();
+		g2.drawImage(image, (tileX * 256), (tileY * 256), (tileX * 256) + 255, (tileY * 256), 0, 0, 255, 255, null);
+		**/
 		int[] pixels = new int[256 * 256];
 		PixelGrabber pg = new PixelGrabber(image, 0, 0, 256, 256, pixels, 0, 256);
 		try {
 			pg.grabPixels();
 			for (int x = 0; x < 256; x++) {
 				for (int y = 0; y < 256; y++) {
-					int c = pixels[(x * 256) + y];
-					switch (c) {
-					case 0xFFFFCD2E:
-						severityMap[(tileX * 256) + x][(tileY * 256) + y] = TurbulenceSeverity.LIGHT;
-						break;
-					case 0xFFFF9C00:
-						severityMap[(tileX * 256) + x][(tileY * 256) + y] = TurbulenceSeverity.OCCASIONAL;
-						break;
-					case 0xFFFF7701:
-						severityMap[(tileX * 256) + x][(tileY * 256) + y] = TurbulenceSeverity.MODERATE;
-						break;
-					case 0xFFE24800:
-						severityMap[(tileX * 256) + x][(tileY * 256) + y] = TurbulenceSeverity.MODERATE_PLUS;
-						break;
-					case 0:
-						severityMap[(tileX * 256) + x][(tileY * 256) + y] = TurbulenceSeverity.NONE;
-						break;
-					default:
-						System.out.format("BOGUS COLOR: %x\n", c);
-					}
+					int c = pixels[(y * 256) + x];
+					bitmap.setRGB((tileX * 256) + x, (tileY * 256) + y, c);
 				}
 			}
 		} catch (InterruptedException e) {

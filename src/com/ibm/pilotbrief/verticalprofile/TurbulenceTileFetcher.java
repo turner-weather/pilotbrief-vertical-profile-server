@@ -91,6 +91,9 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 			Map<RPMLayer, SortedMap<Date, UnpackedRPMLayer>> newLayerMap = new HashMap<RPMLayer, SortedMap<Date, UnpackedRPMLayer>>();
 			for (RPMLayer layer : layers.values()) {
 				newLayerMap.put(layer, new TreeMap<Date, UnpackedRPMLayer>());
+				if ((layer == null) || (layer.forecastTimestamp == null)) {
+					continue;
+				}
 				for (Long fts : layer.forecastTimestamp) {
 					Date ftsDate = new Date(fts * 1000);
 //					System.out.format("Fetching layer: %s, FTS = %s\n", layer.layerName, ftsDate.toGMTString());
@@ -143,7 +146,6 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 			
 			pool.shutdown();
 			while (!pool.awaitTermination(10, TimeUnit.SECONDS)) {
-				System.out.format("Remaining = %d\n", pool.getQueue().size());
 			}
 			unpackedLayers = newMap;
 			layerMap = newLayerMap;
@@ -152,7 +154,6 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 			synchronized(this) {
 				this.notifyAll();
 			}
-			System.out.println("DONE!");
 		}catch (Exception ex) {
 			ex.printStackTrace();
 		}
@@ -167,11 +168,24 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 			}
 			if ((fts <= timestamp) &&
 					(fts + 3600000 >= timestamp)) {
-				TurbulenceSeverity s = rpmLayer.severityMap[x][y];
-				if (s != null) {
-					System.out.format("Got %s for %d, %d\n", s.toString(), x, y);
+				y = rpmLayer.bitmap.getHeight() - y;
+				int color = rpmLayer.bitmap.getRGB(x, y);
+				switch (color) {
+				case 0xFFFFCD2E:
+					return TurbulenceSeverity.LIGHT;
+				case 0xFFFF9C00:
+					return TurbulenceSeverity.OCCASIONAL;
+				case 0xFFFF7701:
+					return TurbulenceSeverity.MODERATE;
+				case 0xFFE24800:
+					return TurbulenceSeverity.MODERATE_PLUS;
+				case 0:
+					return TurbulenceSeverity.NONE;
+				default:
+					System.out.format("BOGUS COLOR: %x\n", color);
 				}
-				return s;
+
+				return TurbulenceSeverity.NONE;
 			}
 			
 		}
