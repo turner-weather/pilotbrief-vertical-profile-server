@@ -145,28 +145,6 @@ public class TurbulenceServlet {
 
 			}
 		}
-		String layerKey = TurbulenceTileFetcher.shared().unpackedLayers.keySet().iterator().next();
-		UnpackedRPMLayer layer = TurbulenceTileFetcher.shared().unpackedLayers.get(layerKey);
-		File debugFile = new File("/tmp/debug.png");
-		for (int x = 0; x < UnpackedRPMLayer.totalTileSize - 1; x += 256) {
-			for (int y = 0; y < UnpackedRPMLayer.totalTileSize - 1; y += 1) {
-				layer.bitmap.setRGB(x, y, 0xFFFFCD2E);
-			}
-		}
-		for (int y = 0; y < UnpackedRPMLayer.totalTileSize - 1; y += 256) {
-			for (int x = 0; x < UnpackedRPMLayer.totalTileSize - 1; x += 1) {
-			layer.bitmap.setRGB(x, y, 0xFFFFCD2E);
-			}
-		}
-		for (IntermediatePosition pos : positions) {
-			layer.bitmap.setRGB(pos.x, (UnpackedRPMLayer.totalTileSize - 1) - pos.y, 0xFFFFCD2E);
-		}
-		try {
-			ImageIO.write(layer.bitmap, "png", debugFile);
-		} catch (IOException e2) {
-			// TODO Auto-generated catch block
-			e2.printStackTrace();
-		}
 		try {
 			String json = m.writeValueAsString(responseJSON);
 			return Response.ok(json).build();
