@@ -159,11 +159,21 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 		}
 	}
 	
-	public TurbulenceSeverity getLayerValueForAltitudeAndTime(RPMLayer layer, Date time, int x, int y) {
+	public static class TurbulenceValue {
+		public TurbulenceValue(TurbulenceSeverity severity, Date forecastTimestamp) {
+			super();
+			this.severity = severity;
+			this.forecastTimestamp = forecastTimestamp;
+		}
+		TurbulenceSeverity severity;
+		Date forecastTimestamp;
+	}
+	
+	public TurbulenceValue getLayerValueForAltitudeAndTime(RPMLayer layer, Date time, int x, int y) {
 		long timestamp = time.getTime() ;
 		for (UnpackedRPMLayer rpmLayer : this.layerMap.get(layer).values()) {
 			long fts = rpmLayer.forecastTimestamp;
-			if (rpmLayer.forecastTimestamp > timestamp) {
+			if (fts > timestamp) {
 				break;
 			}
 			if ((fts <= timestamp) &&
@@ -172,20 +182,18 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 				int color = rpmLayer.bitmap.getRGB(x, y);
 				switch (color) {
 				case 0xFFFFCD2E:
-					return TurbulenceSeverity.LIGHT;
+					return new TurbulenceValue(TurbulenceSeverity.LIGHT, new Date(fts));
 				case 0xFFFF9C00:
-					return TurbulenceSeverity.OCCASIONAL;
+					return new TurbulenceValue(TurbulenceSeverity.OCCASIONAL, new Date(fts));
 				case 0xFFFF7701:
-					return TurbulenceSeverity.MODERATE;
+					return new TurbulenceValue(TurbulenceSeverity.MODERATE, new Date(fts));
 				case 0xFFE24800:
-					return TurbulenceSeverity.MODERATE_PLUS;
+					return new TurbulenceValue(TurbulenceSeverity.MODERATE_PLUS, new Date(fts));
 				case 0:
-					return TurbulenceSeverity.NONE;
-				default:
-					System.out.format("BOGUS COLOR: %x\n", color);
+					return new TurbulenceValue(TurbulenceSeverity.NONE, new Date(fts));
 				}
-
-				return TurbulenceSeverity.NONE;
+				System.out.format("BOGUS COLOR: %x\n", color);
+				return new TurbulenceValue(TurbulenceSeverity.NONE, new Date(fts));
 			}
 			
 		}

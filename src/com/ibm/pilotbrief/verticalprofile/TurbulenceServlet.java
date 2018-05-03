@@ -1,14 +1,11 @@
 package com.ibm.pilotbrief.verticalprofile;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.GET;
@@ -28,6 +25,7 @@ import org.gavaghan.geodesy.GlobalCoordinates;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.RPMLayer;
+import com.ibm.pilotbrief.verticalprofile.TurbulenceTileFetcher.TurbulenceValue;
 import com.ibm.pilotbrief.verticalprofile.UnpackedRPMLayer.TurbulenceSeverity;
 
 
@@ -42,17 +40,18 @@ public class TurbulenceServlet {
 		return Response.ok(TurbulenceTileFetcher.shared().isReady).build();
 	}
 	
-	private Map<String, Object> addFeature(Double lastLat, Double lastLong, Double currentLat, Double currentLong, RPMLayer layer, TurbulenceSeverity severity) {
+	
+	private Map<String, Object> addFeature(IntermediatePosition start, IntermediatePosition end, RPMLayer layer, TurbulenceValue severity) {
 		Map<String, Object> newFeature = new HashMap<String, Object>();
 		newFeature.put("type", "Feature");
 		Map<String, Object> geometry = new HashMap<String, Object>();
 		newFeature.put("geometry", geometry);
 		geometry.put("type", "Polygon");
 		List<Double[]> coordinates = new ArrayList<Double[]>();
-		Double[] leftBottom = {lastLong, lastLat, layer.floorFL * 100.0};
-		Double[] leftTop = {lastLong, lastLat, layer.ceilingFL * 100.0};
-		Double[] rightTop = {currentLong, currentLat,  layer.ceilingFL * 100.0};
-		Double[] rightBottom = {currentLong, currentLat, layer.floorFL * 100.0};
+		Double[] leftBottom = {start.longitude, start.lat, layer.floorFL * 100.0};
+		Double[] leftTop = {start.longitude, start.lat, layer.ceilingFL * 100.0};
+		Double[] rightTop = {end.longitude, end.lat,  layer.ceilingFL * 100.0};
+		Double[] rightBottom = {end.longitude, end.lat, layer.floorFL * 100.0};
 		coordinates.add(leftBottom);
 		coordinates.add(leftTop);
 		coordinates.add(rightTop);
@@ -63,7 +62,12 @@ public class TurbulenceServlet {
 		geometry.put("coordinates", wrapper);
 		Map<String, Object> props = new HashMap<String, Object>();
 		newFeature.put("properties", props);
-		props.put("severity", severity);
+		props.put("severity", severity.severity);
+		props.put("startCoord", start);
+		props.put("endCoord", end);
+		props.put("floor", layer.floorFL);
+		props.put("ceiling", layer.ceilingFL);
+		props.put("validDate", severity.forecastTimestamp.getTime());
 		return newFeature;
 		
 	}
@@ -116,33 +120,26 @@ public class TurbulenceServlet {
 		 */
 		Map<String, Object> responseJSON = new HashMap<String, Object>();
 		responseJSON.put("type", "FeatureCollection");
+		Map<String, Object> collectionProperties = new HashMap<String, Object>();
+		RPMLayer layer = SSDSVersionFetcher.shared().getRPMLayers().get("globalGTG110");
+		collectionProperties.put("issueTime", layer.timestamp);
+		collectionProperties.put("validities", layer.forecastTimestamp);
+		responseJSON.put("properties", collectionProperties);
 		List<Map<String, Object>> featureJSON = new ArrayList<Map<String, Object>>();
 		responseJSON.put("features"	, featureJSON);
 		for (RPMLayer rpmLayer : SSDSVersionFetcher.shared().getRPMLayers().values()) {
-			TurbulenceSeverity lastTurb = TurbulenceSeverity.NONE;
-			Double lastTurbLat = null;
-			Double lastTurbLong = null; 
+			TurbulenceValue lastTurb = new TurbulenceValue(TurbulenceSeverity.NONE, flightplan.getDepartureTime());
+			IntermediatePosition lastPosition = null;
 			for (IntermediatePosition pos : positions) {
-				TurbulenceSeverity severity = TurbulenceTileFetcher.shared().getLayerValueForAltitudeAndTime(rpmLayer, pos.eta, pos.x,pos.y);
-				if (severity == null) {
-					severity = TurbulenceSeverity.NONE;
-				}
-				if (severity == lastTurb) {
+				TurbulenceValue severity = TurbulenceTileFetcher.shared().getLayerValueForAltitudeAndTime(rpmLayer, pos.eta, pos.x,pos.y);				
+				if ((severity.severity == lastTurb.severity) &&  (pos != positions.get(positions.size() - 1))){
 					continue;
 				}
-				if ((severity == TurbulenceSeverity.NONE) || (pos == positions.get(positions.size() - 1))) {
-					featureJSON.add(this.addFeature(lastTurbLat, lastTurbLong,  pos.lat, pos.longitude, rpmLayer, lastTurb));
-					lastTurb = TurbulenceSeverity.NONE;
-					continue;
+				if (lastTurb.severity != TurbulenceSeverity.NONE) { 
+					featureJSON.add(this.addFeature(lastPosition, pos, rpmLayer, lastTurb));
 				}
 				lastTurb = severity;
-				lastTurbLat = pos.lat;
-				lastTurbLong = pos.longitude;
-			}
-			if (lastTurb != TurbulenceSeverity.NONE) {
-				IntermediatePosition lastPos = positions.get(positions.size() - 1);
-				featureJSON.add(this.addFeature(lastTurbLat, lastTurbLong,  lastPos.lat, lastPos.longitude, rpmLayer, lastTurb));
-
+				lastPosition = pos;
 			}
 		}
 		try {
