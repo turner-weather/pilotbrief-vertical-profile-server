@@ -1,26 +1,37 @@
 package com.ibm.pilotbrief.verticalprofile;
 
-import java.awt.image.BufferedImage;
-import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
+import java.net.URL;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
-import java.util.TreeMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
-import javax.imageio.ImageIO;
 import javax.servlet.ServletContextEvent;
 import javax.servlet.ServletContextListener;
 import javax.servlet.annotation.WebListener;
 
+import org.apache.commons.io.FileUtils;
+import org.apache.tomcat.util.http.fileupload.IOUtils;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+
 import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.RPMLayer;
 import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.SSDSUpdateSubscriber;
 import com.ibm.pilotbrief.verticalprofile.UnpackedRPMLayer.TurbulenceSeverity;
+
+import mil.nga.geopackage.GeoPackage;
+import mil.nga.geopackage.manager.GeoPackageManager;
 
 @WebListener
 public class TurbulenceTileFetcher implements ServletContextListener {
@@ -85,11 +96,66 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 	
 	public void fetchTiles(Map<String, RPMLayer> layers) {
 		this.isFetching = true;
-		try {
 			ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(NTHREADS);
 			Map<String, UnpackedRPMLayer> newMap = new HashMap<String, UnpackedRPMLayer>();
 			Map<RPMLayer, SortedMap<Date, UnpackedRPMLayer>> newLayerMap = new HashMap<RPMLayer, SortedMap<Date, UnpackedRPMLayer>>();
-			for (RPMLayer layer : layers.values()) {
+				try {
+					URI uri = new URI(String.format("https://%s/v3/ssds/geopackage?apiKey=%s", 
+							System.getenv("SSDS_ENDPOINT"),
+							System.getenv("SSDS_CREDENTIALS")));
+					HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
+					conn.setRequestMethod("POST");
+					conn.setDoOutput(true);
+					conn.setRequestProperty("Connection", "keep-alive");
+					conn.setDoOutput(true);
+					conn.setRequestProperty( "Content-Type", "application/json"); 
+					conn.setRequestProperty( "charset", "utf-8");
+					StringBuffer prodListCoda = new StringBuffer("{\n" + 
+							"  \"aoi\": [{\n" + 
+							"      \"lod\": [4],\n" + 
+							"      \"bbox\": [-180.0, -90.0, 180.0, 90.0]\n" + 
+							"      }\n" + 
+							"    ],\n" + 
+							"  \"products\": [\n");
+					for (RPMLayer layer : layers.values()) {
+						prodListCoda.append(String.format("{\"id\" : \"%s\", \"dataType\" : \"image/png\", \"rt\" : %d, \"t\" : [", layer.layerId, layer.timestamp));
+						Long lastts = layer.forecastTimestamp.get(layer.forecastTimestamp.size() - 1);
+						for (Long t : layer.forecastTimestamp) {
+							prodListCoda = prodListCoda.append(String.format("%d", t));
+							if (t != lastts) {
+								prodListCoda.append(",");
+							}
+						}
+						prodListCoda.append("]\n" +
+						"},");
+					}
+					prodListCoda.deleteCharAt(prodListCoda.length() - 1);
+					prodListCoda.append("]}");
+					System.out.println(prodListCoda.toString());
+					conn.connect();
+					OutputStream os = conn.getOutputStream();
+			        os.write(prodListCoda.toString().getBytes());
+			        os.flush();					
+					if (conn.getResponseCode() != 200) {
+						//TODO: Figure out right thing to do here.
+						System.out.println("Request response is " + conn.getResponseCode());
+						return;
+					}
+					Object response = new JSONParser().parse(new InputStreamReader(conn.getInputStream()));
+					if (response == null) {
+						//TODO: Also figure out what to do here...
+					}
+					JSONObject responseObj = (JSONObject) response;
+					String status = (String) responseObj.get("status");
+					String id = (String) responseObj.get("id");
+					if (status.equalsIgnoreCase("success") || status.equalsIgnoreCase("pending")) {
+						this.getResponseTiles(id, layers.values().iterator().next().timestamp);
+					}
+					return;
+				} catch (Exception ex) {
+					ex.printStackTrace();
+				}
+				/**
 				newLayerMap.put(layer, new TreeMap<Date, UnpackedRPMLayer>());
 				if ((layer == null) || (layer.forecastTimestamp == null)) {
 					continue;
@@ -111,15 +177,9 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 								@Override
 								public void run() {
 									try {
-										URI uri = new URI(String.format("https://%s/v3/TileServer/tile?product=%s&apiKey=%s&ts=%d&fts=%d&xyz=%d:%d:%d", 
+										URI uri = new URI(String.format("https://%s/v3/ssds/geopackage?apiKey=%s", 
 												System.getenv("SSDS_ENDPOINT"),
-												layer.layerId,
-												System.getenv("SSDS_CREDENTIALS"),
-												layer.timestamp,
-												fts,
-												myX,
-												myY,
-												UnpackedRPMLayer.TILE_ZOOM_LEVEL));
+												System.getenv("SSDS_CREDENTIALS")));
 										HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
 										conn.setRequestMethod("GET");
 										conn.setRequestProperty("Connection", "keep-alive");
@@ -140,7 +200,6 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 								}
 							});
 						}
-					}
 				}
 			}
 			
@@ -157,8 +216,65 @@ public class TurbulenceTileFetcher implements ServletContextListener {
 		}catch (Exception ex) {
 			ex.printStackTrace();
 		}
+						**/
 	}
 	
+	private void getResponseTiles(String id, Long ts) {
+		try {
+			URI uri = new URI(String.format("https://%s/v3/ssds/geopackage?apiKey=%s&id=%s", 
+					System.getenv("SSDS_ENDPOINT"),
+					System.getenv("SSDS_CREDENTIALS"),
+					id));
+			HttpURLConnection conn = (HttpURLConnection) uri.toURL().openConnection();
+			conn.setRequestMethod("GET");
+			conn.setRequestProperty("Connection", "keep-alive");
+			conn.setRequestProperty( "charset", "utf-8");
+			conn.connect();
+			if (conn.getResponseCode() != 200) {
+				System.out.println("Request " + id + " response is " + conn.getResponseCode());
+				return;
+			}
+			Object response = new JSONParser().parse(new InputStreamReader(conn.getInputStream()));
+			if (response == null) {
+				//TODO: Also figure out what to do here...
+			}
+			JSONObject responseObj = (JSONObject) response;
+			String status = (String) responseObj.get("status");
+			final TurbulenceTileFetcher fetcher = this;
+			if ("Pending".equalsIgnoreCase(status) || "InProgress".equalsIgnoreCase(status)) {
+				System.out.println("Request " + id + " is pending");
+				new java.util.Timer().schedule( 
+			        new java.util.TimerTask() {
+			            @Override
+			            public void run() {
+			                fetcher.getResponseTiles(id, ts);
+			            }
+			        }, 
+			        10000 
+						);
+				return;
+			}
+			if (!"Complete".equalsIgnoreCase(status)) {
+				System.out.println("Request " + id + " status is " + status);
+				return;
+				//TODO: Figure out what to do here
+			}
+			String fetchUri = (String) responseObj.get("fetchUrl");
+			System.out.println("Fetching " + fetchUri);
+			String gpkgPath = String.format("/tmp/RPM-%d.gpkg", ts);
+			FileUtils.copyURLToFile(new URL(fetchUri), new File(gpkgPath + ".gz"));
+			Runtime rt = Runtime.getRuntime();
+			Process pr = rt.exec("gunzip -c " + gpkgPath + ".gz > " + gpkgPath);
+			pr.waitFor();
+			GeoPackage geoPackage = GeoPackageManager.open(new File(gpkgPath));
+			List<String> tiles = geoPackage.getTileTables();
+			for (String tile : tiles) {
+				System.out.println(tile);
+			}
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+	}
 	public static class TurbulenceValue {
 		public TurbulenceValue(TurbulenceSeverity severity, Date forecastTimestamp) {
 			super();
