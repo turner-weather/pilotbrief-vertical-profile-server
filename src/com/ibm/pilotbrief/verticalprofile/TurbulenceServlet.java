@@ -1,5 +1,7 @@
 package com.ibm.pilotbrief.verticalprofile;
 
+import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -26,8 +28,9 @@ import org.gavaghan.geodesy.GlobalCoordinates;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ibm.pilotbrief.verticalprofile.SSDSVersionFetcher.RPMLayer;
+import com.ibm.pilotbrief.verticalprofile.TurbulenceTileFetcher.LayerInfo;
+import com.ibm.pilotbrief.verticalprofile.TurbulenceTileFetcher.TurbulenceSeverity;
 import com.ibm.pilotbrief.verticalprofile.TurbulenceTileFetcher.TurbulenceValue;
-import com.ibm.pilotbrief.verticalprofile.UnpackedRPMLayer.TurbulenceSeverity;
 
 
 @Path("turbulence")
@@ -127,16 +130,45 @@ public class TurbulenceServlet {
 		for (RPMLayer rpmLayer : SSDSVersionFetcher.shared().getRPMLayers().values()) {
 			TurbulenceValue lastTurb = new TurbulenceValue(TurbulenceSeverity.NONE, flightplan.getDepartureTime());
 			IntermediatePosition lastPosition = null;
+			LayerInfo lastInfo = null;
+			long lastTileX = -1;
+			long lastTileY = -1;
+			BufferedImage bitmap = null;
 			for (IntermediatePosition pos : positions) {
-				TurbulenceValue severity = TurbulenceTileFetcher.shared().getLayerValueForAltitudeAndTime(rpmLayer, pos.eta, pos.x,pos.y);				
-				if ((severity.severity == lastTurb.severity) &&  (pos != positions.get(positions.size() - 1))){
+				System.out.format("Fetching %d, %d\n", pos.x, pos.y);
+				Long etaTime = pos.eta.getTime();
+				if (lastInfo == null || lastInfo.effectiveEndTimestamp < etaTime) {
+					lastInfo = null;
+					for (LayerInfo i : TurbulenceTileFetcher.shared().layerTimestamps.get(rpmLayer.layerId)) {
+						if (i.effectiveStartTimestamp <= etaTime && i.effectiveEndTimestamp >= etaTime) {
+							lastInfo = i;
+							break;
+						}
+					}
+				}
+				if (lastInfo == null) {
 					continue;
 				}
-				if (lastTurb.severity != TurbulenceSeverity.NONE) { 
-					featureJSON.add(this.addFeature(lastPosition, pos, rpmLayer, lastTurb));
+				try {
+					long tileX = (long) pos.x / TurbulenceTileFetcher.TILE_SIZE;
+					long tileY = (long) ((TurbulenceTileFetcher.TOTAL_LAYER_IMAGE_SIZE - 1) - pos.y) / TurbulenceTileFetcher.TILE_SIZE;
+					if (lastTileX != tileX || lastTileY != tileY) {
+						bitmap = TurbulenceTileFetcher.shared().getTileForLayer(TurbulenceTileFetcher.shared().new TileInfo(lastInfo, (long) tileX, (long) tileY));
+					}
+					lastTileX = tileX;
+					lastTileY = tileY;
+					TurbulenceValue severityValue = TurbulenceTileFetcher.shared().getLayerValueForAltitudeAndTime(bitmap, lastInfo, pos.x,pos.y);
+					if ((severityValue.severity == lastTurb.severity) &&  (pos != positions.get(positions.size() - 1))){
+						continue;
+					}
+					if (lastTurb.severity != TurbulenceSeverity.NONE) { 
+						featureJSON.add(this.addFeature(lastPosition, pos, rpmLayer, lastTurb));
+					}
+					lastTurb = severityValue;
+					lastPosition = pos;
+				} catch (IOException ex) {
+					ex.printStackTrace();
 				}
-				lastTurb = severity;
-				lastPosition = pos;
 			}
 		}
 		try {
@@ -171,14 +203,14 @@ public class TurbulenceServlet {
 	}
 	
 	public long[] getXYForCoordinate(GlobalCoordinates coord) {
-		double halfSize = (UnpackedRPMLayer.totalTileSize - 1) / 2.0;
-		double x1 = (coord.getLongitude() / 360.0) * Double.valueOf(UnpackedRPMLayer.totalTileSize - 1);
+		double halfSize = (TurbulenceTileFetcher.TOTAL_LAYER_IMAGE_SIZE - 1) / 2.0;
+		double x1 = (coord.getLongitude() / 360.0) * Double.valueOf(TurbulenceTileFetcher.TOTAL_LAYER_IMAGE_SIZE - 1);
 		long x = Math.round(x1 + halfSize) ;
         double tan1 = Math.tan(Math.toRadians(coord.getLatitude() + 90.0) / 2.0);
         double log1 =  Math.toDegrees(Math.log(tan1));
         double y1 = log1 / 180.0;
 
-		long y = Math.max(0, Math.min(Math.round(Math.round(y1 * UnpackedRPMLayer.totalTileSize * 0.5) + halfSize), UnpackedRPMLayer.totalTileSize - 1));
+		long y = Math.max(0, Math.min(Math.round(Math.round(y1 * TurbulenceTileFetcher.TOTAL_LAYER_IMAGE_SIZE * 0.5) + halfSize), TurbulenceTileFetcher.TOTAL_LAYER_IMAGE_SIZE - 1));
 		
 		long[] retval = { x, y };
 		return retval;
